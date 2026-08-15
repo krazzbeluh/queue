@@ -76,7 +76,10 @@ impl QueueManager {
             let mut state = QueueState::load(&self.state_file_path(), &self.queue_name)?;
             cleanup_stale_entries(&mut state);
             if state.entries.len() >= 100 {
-                eprintln!("queue: Warning: High queue depth ({} entries). Commands may take a long time to execute.", state.entries.len());
+                eprintln!(
+                    "queue: Warning: High queue depth ({} entries). Commands may take a long time to execute.",
+                    state.entries.len()
+                );
             }
             state.entries.push(entry.clone());
             state.save(&self.state_file_path())?;
@@ -97,14 +100,14 @@ impl QueueManager {
                 return Err(QueueError::Cancelled);
             }
 
-            if let Some(t) = timeout_secs {
-                if start_wait.elapsed().as_secs() >= t {
-                    let _lock = StateLock::acquire(&self.state_lock_path())?;
-                    let mut state = QueueState::load(&self.state_file_path(), &self.queue_name)?;
-                    state.entries.retain(|e| e.id != entry.id);
-                    state.save(&self.state_file_path())?;
-                    return Err(QueueError::Timeout);
-                }
+            if let Some(t) = timeout_secs
+                && start_wait.elapsed().as_secs() >= t
+            {
+                let _lock = StateLock::acquire(&self.state_lock_path())?;
+                let mut state = QueueState::load(&self.state_file_path(), &self.queue_name)?;
+                state.entries.retain(|e| e.id != entry.id);
+                state.save(&self.state_file_path())?;
+                return Err(QueueError::Timeout);
             }
 
             let is_first = {
