@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -6,6 +6,15 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 use crate::error::QueueError;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaiterEntry {
+    pub id: String,
+    pub command_type: String,
+    pub command: String,
+    pub pid: u32,
+    pub queued_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum EntryStatus {
@@ -50,6 +59,24 @@ pub struct QueueState {
     pub queue_name: String,
     pub entries: Vec<QueueEntry>,
     pub version: u32,
+
+    // Computed fields (not persisted to state.json)
+    #[serde(skip, default)]
+    pub locked: bool,
+    #[serde(skip, default)]
+    pub lock_reason: Option<String>,
+    #[serde(skip, default)]
+    pub lock_token: Option<String>,
+    #[serde(skip, default)]
+    pub locked_at: Option<String>,
+    #[serde(skip, default)]
+    pub locked_by: Option<String>,
+    #[serde(skip, default)]
+    pub lock_pid: Option<u32>,
+    #[serde(skip, default)]
+    pub lock_stale: Option<bool>,
+    #[serde(skip, default)]
+    pub waiters: Vec<WaiterEntry>,
 }
 
 impl QueueState {
@@ -58,6 +85,14 @@ impl QueueState {
             queue_name,
             entries: Vec::new(),
             version: 1,
+            locked: false,
+            lock_reason: None,
+            lock_token: None,
+            locked_at: None,
+            locked_by: None,
+            lock_pid: None,
+            lock_stale: None,
+            waiters: Vec::new(),
         }
     }
 
@@ -86,4 +121,125 @@ impl QueueState {
             .map_err(|e| QueueError::State(format!("Failed to persist state file: {}", e)))?;
         Ok(())
     }
+}
+
+pub fn create_waiter_ticket(
+    queue_dir: &Path,
+    entry: &WaiterEntry,
+) -> Result<std::path::PathBuf, QueueError> {
+    let waiters_dir = queue_dir.join("waiters");
+    fs::create_dir_all(&waiters_dir)
+        .map_err(|e| QueueError::State(format!("Failed to create waiters dir: {}", e)))?;
+
+    let ts = Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    let filename = format!("{:020}-{}.json", ts, entry.id);
+    let path = waiters_dir.join(&filename);
+
+    let temp_file = NamedTempFile::new_in(&waiters_dir)
+        .map_err(|e| QueueError::State(format!("Failed to create temp file: {}", e)))?;
+
+    serde_json::to_writer(&temp_file, entry)
+        .map_err(|e| QueueError::State(format!("Failed to write waiter entry: {}", e)))?;
+
+    temp_file
+        .persist(&path)
+        .map_err(|e| QueueError::State(format!("Failed to persist waiter entry: {}", e)))?;
+
+    Ok(path)
+}
+
+pub fn remove_waiter_ticket(state_dir: &Path, id: &str) -> std::io::Result<()> {
+    let waiters_dir = state_dir.join("waiters");
+    for entry in std::fs::read_dir(waiters_dir)?.flatten() {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(&format!("-{}.json", id))
+        {
+            return std::fs::remove_file(path);
+        }
+    }
+    Ok(())
+}
+
+pub struct WaiterGuard {
+    state_dir: std::path::PathBuf,
+    pub ticket_path: std::path::PathBuf,
+    id: String,
+}
+
+impl WaiterGuard {
+    pub fn new(state_dir: std::path::PathBuf, entry: &WaiterEntry) -> std::io::Result<Self> {
+        let ticket_path = create_waiter_ticket(&state_dir, entry)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        Ok(Self {
+            state_dir,
+            ticket_path,
+            id: entry.id.clone(),
+        })
+    }
+}
+
+impl Drop for WaiterGuard {
+    fn drop(&mut self) {
+        let _ = remove_waiter_ticket(&self.state_dir, &self.id);
+    }
+}
+
+pub fn list_waiters(queue_dir: &Path) -> Result<Vec<WaiterEntry>, QueueError> {
+    let waiters_dir = queue_dir.join("waiters");
+    if !waiters_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut entries = Vec::new();
+    let mut files = Vec::new();
+
+    for entry in fs::read_dir(&waiters_dir)
+        .map_err(|e| QueueError::State(format!("Failed to read waiters dir: {}", e)))?
+    {
+        if let Ok(entry) = entry
+            && entry.path().is_file()
+            && entry.path().extension().is_some_and(|ext| ext == "json")
+        {
+            files.push(entry.path());
+        }
+    }
+
+    files.sort();
+
+    for file in files {
+        if let Ok(data) = fs::read_to_string(&file)
+            && let Ok(waiter) = serde_json::from_str(&data)
+        {
+            entries.push(waiter);
+        }
+    }
+    Ok(entries)
+}
+
+pub fn is_my_turn(queue_dir: &Path, my_ticket: &Path) -> Result<bool, QueueError> {
+    let waiters_dir = queue_dir.join("waiters");
+    if !waiters_dir.exists() {
+        return Ok(true);
+    }
+
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&waiters_dir)
+        .map_err(|e| QueueError::State(format!("Failed to read waiters dir: {}", e)))?
+    {
+        if let Ok(entry) = entry
+            && entry.path().is_file()
+            && entry.path().extension().is_some_and(|ext| ext == "json")
+        {
+            files.push(entry.path());
+        }
+    }
+
+    if files.is_empty() {
+        return Ok(true);
+    }
+
+    files.sort();
+
+    Ok(files[0] == my_ticket)
 }

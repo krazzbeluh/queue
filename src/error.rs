@@ -20,6 +20,18 @@ pub enum QueueError {
     #[error("Timeout waiting for lock")]
     Timeout,
 
+    #[error("Invalid token provided for lock release")]
+    InvalidToken,
+
+    #[error("Queue is not currently locked")]
+    QueueNotLocked,
+
+    #[error("Queue is already locked")]
+    QueueAlreadyLocked,
+
+    #[error("Timeout acquiring explicit lock")]
+    LockAcquisitionTimeout,
+
     #[error("Cancelled by user signal")]
     Cancelled,
 }

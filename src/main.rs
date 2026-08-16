@@ -82,5 +82,67 @@ fn main() {
                 }
             }
         }
+        Commands::Lock {
+            timeout,
+            raw,
+            json,
+            queue,
+            reason,
+        } => {
+            let manager = match QueueManager::new(&queue) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("queue: {}", e);
+                    std::process::exit(125);
+                }
+            };
+
+            let running = signal::setup_signal_handler();
+            let reason_str = reason.join(" ");
+
+            match manager.acquire_lock(&reason_str, timeout, raw, json, running) {
+                Ok(lock_info) => {
+                    display::print_lock_success(&lock_info, raw, json);
+                    std::process::exit(0);
+                }
+                Err(error::QueueError::Timeout) => {
+                    display::print_lock_timeout(&queue, timeout.unwrap_or(0));
+                    std::process::exit(124);
+                }
+                Err(error::QueueError::Cancelled) => {
+                    eprintln!("queue: Cancelled by user");
+                    std::process::exit(130);
+                }
+                Err(e) => {
+                    eprintln!("queue: {}", e);
+                    std::process::exit(125);
+                }
+            }
+        }
+        Commands::Release {
+            queue,
+            token,
+            force,
+        } => {
+            let manager = match QueueManager::new(&queue) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("queue: {}", e);
+                    std::process::exit(125);
+                }
+            };
+
+            match manager.release_lock(token.as_deref(), force) {
+                Ok(()) => {
+                    // We don't have a json flag on the release command in cli.rs, but we can default to false
+                    display::print_release_success(&queue, false);
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    eprintln!("queue: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
     }
 }

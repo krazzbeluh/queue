@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.104"
-chrono = "0.4.45"
+chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.6", features = ["derive"] }
 ctrlc = "3.5.2"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -30,6 +30,10 @@ path = "tests/integration/concurrency_test.rs"
 [[test]]
 name = "status_test"
 path = "tests/integration/status_test.rs"
+
+[[test]]
+name = "cli_lock_test"
+path = "tests/integration/cli_lock_test.rs"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"

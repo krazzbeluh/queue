@@ -39,4 +39,40 @@ pub enum Commands {
         #[arg(short, long, default_value = "main")]
         queue: String,
     },
+    /// Lock the queue for exclusive access
+    Lock {
+        /// Maximum time to wait in queue before aborting (in seconds).
+        #[arg(short, long)]
+        timeout: Option<u64>,
+
+        /// Output only the token to stdout (no formatting)
+        #[arg(long)]
+        raw: bool,
+
+        /// Output result in JSON format
+        #[arg(short, long)]
+        json: bool,
+
+        /// Queue name
+        #[arg(short, long, default_value = "main")]
+        queue: String,
+
+        /// Human-readable reason for locking
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        reason: Vec<String>,
+    },
+    /// Release a locked queue
+    Release {
+        /// Queue name
+        #[arg(short, long, default_value = "main")]
+        queue: String,
+
+        /// Token received from queue lock
+        #[arg(long, required_unless_present = "force")]
+        token: Option<String>,
+
+        /// Bypass token validation and release unconditionally
+        #[arg(long)]
+        force: bool,
+    },
 }
