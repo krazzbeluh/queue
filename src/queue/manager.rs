@@ -141,13 +141,15 @@ impl QueueManager {
                     .unwrap_or(false)
             };
 
-            let turn = is_my_turn(&self.state_dir, &ticket_path).unwrap_or(false);
+            let turn = is_my_turn(&self.state_dir, ticket_path).unwrap_or(false);
 
             if is_first && turn {
                 match ExecutionLock::try_acquire(&self.exec_lock_path()) {
                     Ok(exec_lock) => {
                         let mut can_run = true;
-                        if let Some(existing_lock) = read_lock_info(&self.state_dir, &self.queue_name) {
+                        if let Some(existing_lock) =
+                            read_lock_info(&self.state_dir, &self.queue_name)
+                        {
                             if is_lock_stale(&existing_lock) {
                                 let _ = remove_lock_info(&self.state_dir, &self.queue_name);
                             } else {
@@ -241,7 +243,7 @@ impl QueueManager {
             process
                 .parent()
                 .map(|p| p.as_u32())
-                .unwrap_or_else(|| std::process::id())
+                .unwrap_or_else(std::process::id)
         } else {
             std::process::id()
         };
@@ -265,46 +267,45 @@ impl QueueManager {
                 return Err(QueueError::Cancelled);
             }
 
-            if let Some(t) = timeout_secs {
-                if start_wait.elapsed().as_secs() >= t {
-                    return Err(QueueError::Timeout);
-                }
+            if let Some(t) = timeout_secs
+                && start_wait.elapsed().as_secs() >= t
+            {
+                return Err(QueueError::Timeout);
             }
 
             let existing_lock_info = read_lock_info(&self.state_dir, &self.queue_name);
             let mut is_locked = false;
             let mut locked_reason = String::new();
-            if let Some(lock) = &existing_lock_info {
-                if !is_lock_stale(lock) {
-                    is_locked = true;
-                    locked_reason = lock.reason.clone();
-                }
+            if let Some(lock) = &existing_lock_info
+                && !is_lock_stale(lock)
+            {
+                is_locked = true;
+                locked_reason = lock.reason.clone();
             }
 
-            if is_my_turn(&self.state_dir, &ticket_path).unwrap_or(false) {
-                if let Ok(_exec_lock) = ExecutionLock::try_acquire(&self.exec_lock_path()) {
-                    if !is_locked {
-                        if let Some(lock) = &existing_lock_info {
-                            if is_lock_stale(lock) {
-                                let _ = remove_lock_info(&self.state_dir, &self.queue_name);
-                            }
-                        }
-
-                        let token = Uuid::new_v4().to_string();
-                        let locked_at = chrono::Utc::now();
-                        let lock_info = LockInfo {
-                            queue_name: self.queue_name.clone(),
-                            reason: reason.to_string(),
-                            token: token.clone(),
-                            locked_at,
-                            locked_by: Some(format!("PID {}", pid)),
-                            pid,
-                        };
-
-                        write_lock_info(&self.state_dir, &lock_info)?;
-                        return Ok(lock_info);
-                    }
+            if is_my_turn(&self.state_dir, ticket_path).unwrap_or(false)
+                && let Ok(_exec_lock) = ExecutionLock::try_acquire(&self.exec_lock_path())
+                && !is_locked
+            {
+                if let Some(lock) = &existing_lock_info
+                    && is_lock_stale(lock)
+                {
+                    let _ = remove_lock_info(&self.state_dir, &self.queue_name);
                 }
+
+                let token = Uuid::new_v4().to_string();
+                let locked_at = chrono::Utc::now();
+                let lock_info = LockInfo {
+                    queue_name: self.queue_name.clone(),
+                    reason: reason.to_string(),
+                    token: token.clone(),
+                    locked_at,
+                    locked_by: Some(format!("PID {}", pid)),
+                    pid,
+                };
+
+                write_lock_info(&self.state_dir, &lock_info)?;
+                return Ok(lock_info);
             }
 
             if !raw && !json && !has_printed_wait {

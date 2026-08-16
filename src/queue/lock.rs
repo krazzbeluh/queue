@@ -30,6 +30,7 @@ impl StateLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
 
         file.lock()
@@ -52,6 +53,7 @@ impl ExecutionLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
 
         file.lock().map_err(|e| {
@@ -69,6 +71,7 @@ impl ExecutionLock {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(path)?;
 
         match file.try_lock() {

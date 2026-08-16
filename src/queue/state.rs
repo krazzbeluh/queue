@@ -150,14 +150,12 @@ pub fn create_waiter_ticket(
 
 pub fn remove_waiter_ticket(state_dir: &Path, id: &str) -> std::io::Result<()> {
     let waiters_dir = state_dir.join("waiters");
-    for entry in std::fs::read_dir(waiters_dir)? {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.ends_with(&format!("-{}.json", id)) {
-                    return std::fs::remove_file(path);
-                }
-            }
+    for entry in std::fs::read_dir(waiters_dir)?.flatten() {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str())
+            && name.ends_with(&format!("-{}.json", id))
+        {
+            return std::fs::remove_file(path);
         }
     }
     Ok(())
@@ -172,7 +170,7 @@ pub struct WaiterGuard {
 impl WaiterGuard {
     pub fn new(state_dir: std::path::PathBuf, entry: &WaiterEntry) -> std::io::Result<Self> {
         let ticket_path = create_waiter_ticket(&state_dir, entry)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(Self {
             state_dir,
             ticket_path,
@@ -199,21 +197,21 @@ pub fn list_waiters(queue_dir: &Path) -> Result<Vec<WaiterEntry>, QueueError> {
     for entry in fs::read_dir(&waiters_dir)
         .map_err(|e| QueueError::State(format!("Failed to read waiters dir: {}", e)))?
     {
-        if let Ok(entry) = entry {
-            if entry.path().is_file() && entry.path().extension().map_or(false, |ext| ext == "json")
-            {
-                files.push(entry.path());
-            }
+        if let Ok(entry) = entry
+            && entry.path().is_file()
+            && entry.path().extension().is_some_and(|ext| ext == "json")
+        {
+            files.push(entry.path());
         }
     }
 
     files.sort();
 
     for file in files {
-        if let Ok(data) = fs::read_to_string(&file) {
-            if let Ok(waiter) = serde_json::from_str(&data) {
-                entries.push(waiter);
-            }
+        if let Ok(data) = fs::read_to_string(&file)
+            && let Ok(waiter) = serde_json::from_str(&data)
+        {
+            entries.push(waiter);
         }
     }
     Ok(entries)
@@ -229,11 +227,11 @@ pub fn is_my_turn(queue_dir: &Path, my_ticket: &Path) -> Result<bool, QueueError
     for entry in fs::read_dir(&waiters_dir)
         .map_err(|e| QueueError::State(format!("Failed to read waiters dir: {}", e)))?
     {
-        if let Ok(entry) = entry {
-            if entry.path().is_file() && entry.path().extension().map_or(false, |ext| ext == "json")
-            {
-                files.push(entry.path());
-            }
+        if let Ok(entry) = entry
+            && entry.path().is_file()
+            && entry.path().extension().is_some_and(|ext| ext == "json")
+        {
+            files.push(entry.path());
         }
     }
 
